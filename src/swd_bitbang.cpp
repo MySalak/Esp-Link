@@ -22,12 +22,11 @@
 // ============================================================
 
 static inline void swdio_output_enable(void) {
-    gpio_set_direction((gpio_num_t)SWDIO_PIN, GPIO_MODE_OUTPUT);
+    GPIO.enable_w1ts = (1UL << SWDIO_PIN);
 }
 
 static inline void swdio_input_enable(void) {
-    gpio_set_direction((gpio_num_t)SWDIO_PIN, GPIO_MODE_INPUT);
-    // Note: external 10kΩ pull-up on SWDIO is recommended
+    GPIO.enable_w1tc = (1UL << SWDIO_PIN);
 }
 
 // ============================================================
@@ -37,10 +36,16 @@ static inline void swdio_input_enable(void) {
 // Increase SWD_DELAY_CYCLES in pin_config.h if unreliable.
 // ============================================================
 
+// Compile-time unrolled NOP delay — zero loop overhead.
+// The compiler sees a fixed number of asm nops and inlines them directly.
+template<int N> static inline void swd_delay_nops() {
+    swd_delay_nops<N-1>();
+    __asm__ __volatile__("nop");
+}
+template<> inline void swd_delay_nops<0>() {}
+
 static inline void swd_delay(void) {
-    for (volatile int i = 0; i < SWD_DELAY_CYCLES; i++) {
-        __asm__ __volatile__("nop");
-    }
+    swd_delay_nops<SWD_DELAY_CYCLES>();
 }
 
 // ============================================================
@@ -85,14 +90,28 @@ static void swd_clock_cycle(void) {
 // ============================================================
 
 void swd_init(void) {
-    // Configure GPIO pins
+    // Configure SWCLK and NRST using Arduino API
     pinMode(SWCLK_PIN, OUTPUT);
+    
+    // NRST is configured as open-drain so that if a physical reset button on the board
+    // pulls NRST to GND, it does not cause a short circuit with the ESP32 output driver.
+    pinMode(NRST_PIN, OUTPUT_OPEN_DRAIN);
+
+    // Initialize SWDIO using Arduino API FIRST so the GPIO matrix routes the signal to the pad correctly.
     pinMode(SWDIO_PIN, OUTPUT);
-    pinMode(NRST_PIN, OUTPUT);
+    
+    // Then override the pad configuration using ESP-IDF to ensure BOTH input and output buffers are enabled.
+    // This allows us to use ultra-fast GPIO.enable_w1ts / w1tc for direction switching.
+    gpio_set_direction((gpio_num_t)SWDIO_PIN, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_pull_mode((gpio_num_t)SWDIO_PIN, GPIO_PULLUP_ONLY);
 
     // Default states
     digitalWrite(SWCLK_PIN, HIGH);
+    
+    // Enable SWDIO output driver by default and drive it HIGH
+    GPIO.enable_w1ts = (1UL << SWDIO_PIN);
     digitalWrite(SWDIO_PIN, HIGH);
+    
     digitalWrite(NRST_PIN, HIGH);  // NRST deasserted (target not in reset)
 }
 
@@ -119,7 +138,15 @@ void swd_jtag_to_swd(void) {
     swdio_output_enable();
 
     // Step 1: Line reset (≥50 clocks with SWDIO HIGH)
-    swd_line_reset();
+    // We cannot use swd_line_reset() here because it appends LOW idle cycles,
+    // which violates the ARM ADIv5 specification for JTAG-to-SWD switching.
+    SWDIO_SET();
+    for (int i = 0; i < 56; i++) {
+        SWCLK_CLR();
+        swd_delay();
+        SWCLK_SET();
+        swd_delay();
+    }
 
     // Step 2: Send 16-bit JTAG-to-SWD switching sequence
     // 0xE79E transmitted LSB first
@@ -128,10 +155,16 @@ void swd_jtag_to_swd(void) {
         swd_write_bit((seq >> i) & 1);
     }
 
-    // Step 3: Another line reset
-    swd_line_reset();
+    // Step 3: Another line reset (≥50 clocks with SWDIO HIGH)
+    SWDIO_SET();
+    for (int i = 0; i < 56; i++) {
+        SWCLK_CLR();
+        swd_delay();
+        SWCLK_SET();
+        swd_delay();
+    }
 
-    // Step 4: Idle cycles
+    // Step 4: Idle cycles (must be at least 2)
     SWDIO_CLR();
     for (int i = 0; i < 4; i++) {
         swd_clock_cycle();

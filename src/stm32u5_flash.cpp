@@ -65,6 +65,19 @@ bool stm32u5_flash_clear_errors(void) {
 bool stm32u5_flash_unlock(void) {
     DBG("Unlocking flash...");
 
+    // Read current NSCR to check if already unlocked
+    uint32_t nscr;
+    if (!swd_mem_read32(FLASH_NSCR, &nscr)) {
+        DBG("Failed to read NSCR");
+        return false;
+    }
+
+    if (!(nscr & FLASH_NSCR_LOCK)) {
+        DBG("Flash is already unlocked (NSCR=0x%08lX)", nscr);
+        stm32u5_flash_clear_errors();
+        return true;
+    }
+
     // Write unlock key sequence to FLASH_NSKEYR
     // KEY1 first, then KEY2
     if (!swd_mem_write32(FLASH_NSKEYR, FLASH_KEY1)) {
@@ -78,13 +91,17 @@ bool stm32u5_flash_unlock(void) {
     }
 
     // Verify unlock by reading NSCR — LOCK bit should be cleared
-    uint32_t nscr;
     if (!swd_mem_read32(FLASH_NSCR, &nscr)) {
         DBG("Failed to read NSCR after unlock");
         return false;
     }
 
     DBG("NSCR after unlock = 0x%08lX", nscr);
+
+    if (nscr & FLASH_NSCR_LOCK) {
+        DBG("Flash failed to unlock!");
+        return false;
+    }
 
     // Clear any pending errors
     stm32u5_flash_clear_errors();
@@ -201,18 +218,14 @@ bool stm32u5_flash_write_quadword(uint32_t addr, const uint8_t *data) {
         return false;
     }
 
-    // Write 4 consecutive 32-bit words (128 bits total)
+    // Write 4 consecutive 32-bit words (128 bits total) using block write
     // The STM32U5 flash controller starts programming automatically
     // after all 4 words are written.
-    const uint32_t *words = (const uint32_t *)data;
-
-    for (int i = 0; i < 4; i++) {
-        if (!swd_mem_write32(addr + (i * 4), words[i])) {
-            DBG("Failed to write word %d at 0x%08lX", i, addr + (i * 4));
-            // Clear PG bit
-            swd_mem_write32(FLASH_NSCR, 0);
-            return false;
-        }
+    if (!swd_mem_write_block(addr, data, 16)) {
+        DBG("Failed to write quad-word at 0x%08lX", addr);
+        // Clear PG bit
+        swd_mem_write32(FLASH_NSCR, 0);
+        return false;
     }
 
     // Wait for programming to complete

@@ -60,6 +60,7 @@
 #define FLASH_NSCR_BKER     (1UL << 11)  // Bank selection (0=Bank1, 1=Bank2)
 #define FLASH_NSCR_MER2     (1UL << 15)  // Bank 2 mass erase
 #define FLASH_NSCR_STRT     (1UL << 16)  // Start operation
+#define FLASH_NSCR_LOCK     (1UL << 31)  // Lock bit
 
 // ============================================================
 // Function Declarations

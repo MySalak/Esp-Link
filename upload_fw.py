@@ -51,7 +51,7 @@ def main():
     parser.add_argument("firmware", help="Path to .bin firmware file")
     parser.add_argument("address", nargs="?", default="0x08000000",
                         help="Start address in flash (default: 0x08000000)")
-    parser.add_argument("--baud", type=int, default=921600, help="Baud rate (default: 921600)")
+    parser.add_argument("--baud", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--verify", action="store_true", help="Verify after programming")
     parser.add_argument("--no-reset", action="store_true", help="Don't reset target after programming")
     args = parser.parse_args()
@@ -116,23 +116,40 @@ def main():
                 speed = sent / elapsed if elapsed > 0 else 0
                 print(f"\r  Uploading: {pct}% ({sent}/{fw_size} bytes, {speed:.0f} B/s)", end="")
 
-                # Wait a bit to avoid overwhelming the ESP32
-                time.sleep(0.01)
+                # Wait for ESP32 to process the chunk and print PROGRESS
+                # This acts as flow control to prevent ESP32 RX buffer overflow
+                ack_timeout = time.time() + 5.0
+                while time.time() < ack_timeout:
+                    if ser.in_waiting:
+                        line = ser.readline().decode('utf-8', errors='replace').strip()
+                        if line:
+                            # We can print it for debug or ignore it.
+                            # We are looking for PROGRESS: or ERROR:
+                            if line.startswith("PROGRESS:") or line.startswith("ERROR:"):
+                                break
+                            elif line.startswith("OK:"):
+                                break
+                    else:
+                        time.sleep(0.005)
+                
+                # If we timed out, we just continue and hope for the best
 
             print()
 
             # Wait for programming completion
             print("  Waiting for programming to complete...")
-            resp, lines = wait_response(ser, timeout=120)
-
-            # Read any remaining progress messages
-            time.sleep(1)
-            while ser.in_waiting:
-                line = ser.readline().decode('utf-8', errors='replace').strip()
-                if line:
-                    print(f"  <- {line}")
-                    if line.startswith("OK"):
-                        resp = line
+            resp = ""
+            start_wait = time.time()
+            while (time.time() - start_wait) < 10.0:
+                if ser.in_waiting:
+                    line = ser.readline().decode('utf-8', errors='replace').strip()
+                    if line:
+                        print(f"  <- {line}")
+                        if line.startswith("OK:") or line.startswith("ERROR:"):
+                            resp = line
+                            break
+                else:
+                    time.sleep(0.01)
         else:
             print("ERROR: Unexpected response to program command")
             sys.exit(1)
@@ -151,10 +168,50 @@ def main():
             if resp == "READY":
                 with open(args.firmware, "rb") as f:
                     fw_data = f.read()
-                ser.write(fw_data)
-                ser.flush()
 
-                resp, _ = wait_response(ser, timeout=120)
+                chunk_size = 1024
+                sent = 0
+                start_time = time.time()
+
+                while sent < fw_size:
+                    chunk = fw_data[sent:sent + chunk_size]
+                    ser.write(chunk)
+                    ser.flush()
+                    sent += len(chunk)
+
+                    pct = (sent * 100) // fw_size
+                    elapsed = time.time() - start_time
+                    speed = sent / elapsed if elapsed > 0 else 0
+                    print(f"\r  Verifying: {pct}% ({sent}/{fw_size} bytes, {speed:.0f} B/s)", end="")
+
+                    ack_timeout = time.time() + 5.0
+                    while time.time() < ack_timeout:
+                        if ser.in_waiting:
+                            line = ser.readline().decode('utf-8', errors='replace').strip()
+                            if line:
+                                if line.startswith("PROGRESS:") or line.startswith("ERROR:") or line.startswith("MISMATCH"):
+                                    break
+                                elif line.startswith("OK:"):
+                                    break
+                        else:
+                            time.sleep(0.005)
+
+                print()
+                print("  Waiting for verification to complete...")
+
+                resp = ""
+                start_wait = time.time()
+                while (time.time() - start_wait) < 10.0:
+                    if ser.in_waiting:
+                        line = ser.readline().decode('utf-8', errors='replace').strip()
+                        if line:
+                            print(f"  <- {line}")
+                            if line.startswith("OK:") or line.startswith("ERROR:"):
+                                resp = line
+                                break
+                    else:
+                        time.sleep(0.01)
+
                 if resp and resp.startswith("OK"):
                     print("  Verification passed!")
                 else:

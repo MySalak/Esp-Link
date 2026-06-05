@@ -2,34 +2,44 @@
 #include "serial_cmd.h"
 
 // ============================================================
-// ESP32 SWD Bit-Bang Programmer for STM32U585
+// MySalak STM32Duino Programmer
+// STLong32 · Marlong Black Edition (ESP32 SWD Bit-Bang)
+//
+// @author Farras000
 // ============================================================
 //
-// This firmware turns an ESP32 into an SWD programmer that can
-// flash firmware onto an STM32U585CIU6 target via bit-banged
-// Serial Wire Debug (SWD) protocol.
-//
 // Hardware Connections:
+
 //   ESP32 GPIO 22 --> STM32 SWCLK
-//   ESP32 GPIO 21 --> STM32 SWDIO  (+ 10kΩ pull-up to 3.3V)
+//   ESP32 GPIO 21 --> STM32 SWDIO  (pull-up optional for 3.3V)
 //   ESP32 GPIO 19 --> STM32 NRST
 //   ESP32 GND     --> STM32 GND
+//   ESP32 GPIO 16 <-- STM32 TX     (UART bridge, RX2)
 //
-// Usage:
-//   1. Flash this firmware to ESP32
-//   2. Open serial monitor at 921600 baud
-//   3. Type 'help' for available commands
-//   4. Type 'connect' to initialize SWD and halt the STM32
-//   5. Type 'program 0x08000000 <size>' then send binary data
-//   6. Type 'reset' to release the STM32
+// Serial2 (RX2 = GPIO16) reads STM32 UART TX output at 115200
+// and forwards every byte to the USB Serial port so the STM32
+// debug output is visible in the serial monitor alongside the
+// SWD programmer output.
 //
 
+// RX2 pin that connects to the STM32 TX line
+#define STM32_TX_RX_PIN  16
+
 void setup() {
-    // Initialize the serial command interface
+    // Initialize SWD programmer command interface (uses Serial / USB)
     serial_cmd_init();
+
+    // Initialize Serial2 in RX-only mode to read STM32 UART output.
+    // TX2 pin is set to -1 so it is not configured (we only need RX).
+    Serial2.begin(115200, SERIAL_8N1, STM32_TX_RX_PIN, -1);
 }
 
 void loop() {
-    // Process incoming serial commands
+    // Process incoming SWD programmer commands from the PC
     serial_cmd_process();
+
+    // Bridge: forward any bytes from STM32 UART → USB Serial
+    while (Serial2.available()) {
+        Serial.write(Serial2.read());
+    }
 }

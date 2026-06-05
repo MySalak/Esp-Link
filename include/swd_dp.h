@@ -34,10 +34,11 @@
 #define AP_DRW          0x0C  // Data Read/Write
 
 // CSW values
-// 32-bit word access, no auto-increment, DbgSwEnable, privileged
-#define AP_CSW_32BIT        0x23000002
-// 32-bit word access, auto-increment single, DbgSwEnable, privileged
-#define AP_CSW_32BIT_INCR   0x23000012
+// AHB-AP Control/Status Word (CSW)
+// 0x03 = b00000011 -> Bit 29=0 (Secure), Bit 25=1 (Privileged), Bit 24=1 (Data)
+#define AP_CSW_32BIT        0x03000002
+// Address auto-increment (bits 5:4 = 0b01)
+#define AP_CSW_32BIT_INCR   0x03000012
 
 // ============================================================
 // Cortex-M Debug Registers (memory-mapped)

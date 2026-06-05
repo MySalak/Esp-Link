@@ -3,3 +3,9 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Python
+__pycache__/
+*.pyc
+programmer/__pycache__/
+programmer/bin

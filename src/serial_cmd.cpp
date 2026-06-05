@@ -88,13 +88,37 @@ static void cmd_connect(void) {
     Serial.println(F("Connecting via SWD..."));
     uint32_t idcode;
     if (swd_connect(&idcode)) {
-        Serial.printf("OK: IDCODE=0x%08lX\r\n", idcode);
-        Serial.println(F("Halting CPU..."));
-        if (swd_halt_cpu()) {
-            Serial.println(F("OK: CPU halted"));
+        // Enable Vector Catch so the CPU halts immediately after physical reset is released
+        uint32_t demcr;
+        if (swd_mem_read32(DEMCR_ADDR, &demcr)) {
+            swd_mem_write32(DEMCR_ADDR, demcr | DEMCR_VC_CORERESET);
+        }
+
+        // Enable debug and request halt
+        swd_mem_write32(DHCSR_ADDR, DHCSR_DBGKEY | DHCSR_C_HALT | DHCSR_C_DEBUGEN);
+
+        Serial.println(F("Waiting for CPU to halt..."));
+        Serial.println(F(">>> IF YOU ARE HOLDING THE RESET BUTTON, RELEASE IT NOW <<<"));
+        
+        bool halted = false;
+        for (int i = 0; i < 50; i++) { // 5 seconds timeout
+            uint32_t dhcsr;
+            if (swd_mem_read32(DHCSR_ADDR, &dhcsr)) {
+                if (dhcsr & DHCSR_S_HALT) {
+                    halted = true;
+                    break;
+                }
+            }
+            delay(100);
+        }
+
+        if (halted) {
+            Serial.println(F("CPU halted successfully."));
             state = STATE_CONNECTED;
+            // The python script triggers off the first 'OK' line, so print it exactly once at the end.
+            Serial.printf("OK: IDCODE=0x%08lX\r\n", idcode);
         } else {
-            Serial.println(F("ERROR: Failed to halt CPU"));
+            Serial.println(F("ERROR: Failed to halt CPU (Release the reset button!)"));
             state = STATE_ERROR;
         }
     } else {
@@ -173,6 +197,7 @@ static void cmd_read(const char *args) {
 
 static void cmd_write(const char *args) {
     // Parse: <addr> <data>
+    
     char addr_str[20], data_str[20];
     if (sscanf(args, "%19s %19s", addr_str, data_str) != 2) {
         Serial.println(F("Usage: write <addr> <data>"));
@@ -312,6 +337,13 @@ static void cmd_verify_readback(const char *args) {
     uint32_t size = parse_number(size_str);
 
     Serial.printf("Verifying %lu bytes at 0x%08lX\r\n", size, addr);
+    
+    // Clear any lingering characters (like \n from \r\n) from the text command 
+    // before we signal READY and start reading raw binary data.
+    while (Serial.available()) {
+        Serial.read();
+    }
+    
     Serial.println(F("READY"));
 
     // Read expected data from serial and compare with flash
@@ -335,20 +367,31 @@ static void cmd_verify_readback(const char *args) {
         }
 
         // Compare with flash
-        uint32_t words = chunk_size / 4;
         uint32_t *expected = (uint32_t *)fw_chunk;
+        
+        // Allocate temporary buffer for bulk read
+        uint8_t *flash_buf = (uint8_t *)malloc(chunk_size);
+        if (!flash_buf) {
+            Serial.println(F("ERROR: Out of memory for verify buffer"));
+            return;
+        }
+
+        // Read entire block at once using auto-increment
+        if (!swd_mem_read_block(addr + verified, flash_buf, chunk_size)) {
+            Serial.printf("ERROR: Block read failed at 0x%08lX\r\n", addr + verified);
+            free(flash_buf);
+            return;
+        }
+
+        uint32_t *flash_words = (uint32_t *)flash_buf;
+        uint32_t words = chunk_size / 4;
 
         for (uint32_t i = 0; i < words; i++) {
-            uint32_t flash_val;
-            if (!swd_mem_read32(addr + verified + i * 4, &flash_val)) {
-                Serial.printf("ERROR: Read failed at 0x%08lX\r\n", addr + verified + i * 4);
-                return;
-            }
-            if (flash_val != expected[i]) {
+            if (flash_words[i] != expected[i]) {
                 mismatch_count++;
                 if (mismatch_count <= 5) {
                     Serial.printf("MISMATCH at 0x%08lX: expected 0x%08lX got 0x%08lX\r\n",
-                                  addr + verified + i * 4, expected[i], flash_val);
+                                  addr + verified + i * 4, expected[i], flash_words[i]);
                 }
             }
         }
@@ -356,18 +399,17 @@ static void cmd_verify_readback(const char *args) {
         // Handle remaining bytes (less than 4)
         uint32_t remaining = chunk_size % 4;
         if (remaining > 0) {
-            uint32_t flash_val;
-            if (swd_mem_read32(addr + verified + words * 4, &flash_val)) {
-                uint8_t *flash_bytes = (uint8_t *)&flash_val;
-                for (uint32_t i = 0; i < remaining; i++) {
-                    if (flash_bytes[i] != fw_chunk[words * 4 + i]) {
-                        mismatch_count++;
-                    }
+            for (uint32_t i = 0; i < remaining; i++) {
+                if (flash_buf[words * 4 + i] != fw_chunk[words * 4 + i]) {
+                    mismatch_count++;
                 }
             }
         }
+        
+        free(flash_buf);
 
         verified += chunk_size;
+        Serial.printf("PROGRESS: %lu / %lu bytes\r\n", verified, size);
     }
 
     if (mismatch_count == 0) {
@@ -376,6 +418,7 @@ static void cmd_verify_readback(const char *args) {
         Serial.printf("ERROR: %lu mismatches found\r\n", mismatch_count);
     }
 }
+
 
 static void cmd_status(void) {
     const char *state_names[] = {"IDLE", "CONNECTED", "PROGRAMMING", "ERROR"};
@@ -527,6 +570,7 @@ static void process_binary_data(void) {
 // ============================================================
 
 void serial_cmd_init(void) {
+    Serial.setRxBufferSize(8192);  // Large buffer to handle bursts at 460800 baud
     Serial.begin(SERIAL_BAUD);
     while (!Serial) {
         delay(10);

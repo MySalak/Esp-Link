@@ -160,43 +160,49 @@ bool swd_mem_read_block(uint32_t addr, uint8_t *data, uint32_t len) {
     if (len == 0 || (len & 3) != 0) return false;
 
     if (!swd_ap_setup_block()) return false;
-
-    // Write starting address to TAR
     if (!swd_ap_write(AP_TAR, addr)) return false;
 
-    // Make sure SELECT is pointing to DRW's bank
     uint32_t select_val = (AP_DRW & 0xF0);
     if (!swd_select(select_val)) return false;
 
     uint32_t *words = (uint32_t *)data;
     uint32_t word_count = len / 4;
 
-    // First AP read (posted — returns stale data, primes the pipeline)
     uint8_t req = swd_build_request(SWD_AP, SWD_READ, AP_DRW);
     uint32_t val;
-    uint8_t ack = swd_transfer_retry(req, &val);
-    if (ack != SWD_ACK_OK) return false;
 
-    // Subsequent reads return data from the PREVIOUS read
-    for (uint32_t i = 0; i < word_count - 1; i++) {
-        ack = swd_transfer_retry(req, &val);
-        if (ack != SWD_ACK_OK) return false;
-        words[i] = val;
+    // Prime pipeline
+    if (swd_transfer_retry(req, &val) != SWD_ACK_OK) return false;
 
-        // TAR auto-increments within 1KB boundary
-        // If we cross a 1KB boundary, we need to update TAR
-        if (((addr + (i + 2) * 4) & 0x3FF) == 0) {
-            if (!swd_ap_write(AP_TAR, addr + (i + 2) * 4)) return false;
-            // Re-select DRW bank and do another posted read
-            if (!swd_select(select_val)) return false;
-            ack = swd_transfer_retry(req, &val);
-            if (ack != SWD_ACK_OK) return false;
+    for (uint32_t i = 0; i < word_count; i++) {
+        if (i == word_count - 1) {
+            // Last word: read RDBUFF
+            if (!swd_dp_read(DP_RDBUFF, &val)) return false;
+            words[i] = val;
+        } else {
+            // Normal word: read AP_DRW
+            if (swd_transfer_retry(req, &val) != SWD_ACK_OK) return false;
+            words[i] = val;
+
+            // Check if next AP_DRW read will cross 1KB boundary
+            if (((addr + (i + 2) * 4) & 0x3FF) == 0 && (i + 1) < word_count) {
+                // Extract the pipelined word for i+1 via RDBUFF BEFORE updating TAR
+                if (!swd_dp_read(DP_RDBUFF, &val)) return false;
+                words[i + 1] = val;
+                
+                i++; // Advance since we just processed i+1
+                
+                // Update TAR to new 1KB boundary
+                if (!swd_ap_write(AP_TAR, addr + (i + 1) * 4)) return false;
+                if (!swd_select(select_val)) return false;
+                
+                // If this isn't the very end, prime pipeline again
+                if (i < word_count - 1) {
+                    if (swd_transfer_retry(req, &val) != SWD_ACK_OK) return false;
+                }
+            }
         }
     }
-
-    // Last word comes from RDBUFF
-    if (!swd_dp_read(DP_RDBUFF, &val)) return false;
-    words[word_count - 1] = val;
 
     return true;
 }
@@ -345,7 +351,19 @@ bool swd_reset_and_halt(void) {
 }
 
 bool swd_reset_and_run(void) {
-    // Hardware reset via NRST pin
+    // 1. Try software reset first (requires active debug session)
+    // Clear DEMCR VC_CORERESET vector catch so it doesn't halt again
+    uint32_t demcr;
+    if (swd_mem_read32(DEMCR_ADDR, &demcr)) {
+        demcr &= ~DEMCR_VC_CORERESET;
+        swd_mem_write32(DEMCR_ADDR, demcr);
+    }
+    // Clear CPU debug halt states
+    swd_mem_write32(DHCSR_ADDR, DHCSR_DBGKEY);
+    // Request software system reset via AIRCR
+    swd_mem_write32(AIRCR_ADDR, AIRCR_VECTKEY | AIRCR_SYSRESETREQ);
+
+    // 2. Also toggle physical NRST GPIO just in case it is connected
     swd_target_reset_assert();
     delay(50);
     swd_target_reset_deassert();
@@ -378,15 +396,26 @@ bool swd_connect(uint32_t *idcode) {
     swd_init();
     delay(10);
 
-    // JTAG-to-SWD switch sequence
-    swd_jtag_to_swd();
-
     // Read IDCODE (first transaction must be IDCODE read)
-    uint32_t id;
-    if (!swd_dp_read(DP_IDCODE, &id)) {
-        DBG("Failed to read IDCODE");
+    // We retry in a loop to handle cases where the target NRST pin is not
+    // connected and the user manually presses/releases the physical reset button.
+    uint32_t id = 0;
+    bool success = false;
+    for (int retry = 0; retry < 50; retry++) {
+        // JTAG-to-SWD switch sequence
+        swd_jtag_to_swd();
+        if (swd_dp_read(DP_IDCODE, &id)) {
+            success = true;
+            break;
+        }
+        delay(20);
+    }
+
+    if (!success) {
+        DBG("Failed to read IDCODE after retries");
         return false;
     }
+
     DBG("IDCODE = 0x%08lX", id);
     if (idcode) *idcode = id;
 
