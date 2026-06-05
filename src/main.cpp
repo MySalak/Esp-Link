@@ -3,7 +3,7 @@
 
 // ============================================================
 // MySalak STM32Duino Programmer
-// STLong32 · Marlong Black Edition (ESP32 SWD Bit-Bang)
+// ST-Long32 (ESP32 SWD Bit-Bang)
 //
 // @author Farras000
 // ============================================================

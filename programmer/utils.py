@@ -9,7 +9,7 @@ def clr():
 def banner(title=""):
     print(f"{C_BOLD}{C_BLUE}╔══════════════════════════════════════════════════════╗{C_RESET}")
     print(f"{C_BOLD}{C_BLUE}║" + "MySalak STM32Duino Programmer".center(54) + f"║{C_RESET}")
-    print(f"{C_BOLD}{C_BLUE}║" + "STLong32  ·  Marlong Black Edition".center(54) + f"║{C_RESET}")
+    print(f"{C_BOLD}{C_BLUE}║" + "ST-Long32".center(54) + f"║{C_RESET}")
     if title:
         padded = title.center(54)
         print(f"{C_BOLD}{C_BLUE}║{C_CYAN}{padded}{C_BLUE}║{C_RESET}")
