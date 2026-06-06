@@ -78,10 +78,21 @@ def send_binary_with_flow(ser, data, label="Uploading"):
               end="", flush=True)
 
         ack = wait_for_chunk_ack(ser)
-        if ack and ack.startswith("ERROR:"):
+        if ack is None:
+            print()
+            err("ESP32 stopped responding (timeout waiting for chunk ACK)!")
+            return False
+        if ack.startswith("ERROR:"):
             print()
             err(ack)
             return False
+            
+        ram_info = ""
+        if "ESP32 RAM:" in ack:
+            ram_info = f"  |  ESP32 RAM: {ack.split('ESP32 RAM:')[1].split(')')[0].strip()}"
+            
+        print(f"\r  {C_CYAN}[{bar}]{C_RESET} {pct:3d}%  {sent}/{total} B  {speed:.0f} B/s{C_DIM}{ram_info}{C_RESET}    ",
+              end="", flush=True)
 
     print()  # newline after progress bar
     return True

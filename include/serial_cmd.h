@@ -20,7 +20,7 @@
 //   erase <page> [bank]  - Erase flash page (bank 0 or 1)
 //   eraseall             - Mass erase all flash
 //   program <addr> <size>- Enter binary upload mode
-//   verify <addr> <size> - Verify flash against uploaded data
+//   checksum <addr> <size>- Calculate CRC32 of flash and return hash
 //   disconnect           - Release SWD
 //   status               - Show programmer status
 //

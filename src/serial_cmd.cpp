@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <rom/crc.h>
 
 // ============================================================
 // Internal State
@@ -75,7 +76,7 @@ static void cmd_help(void) {
     Serial.println(F("  erase <page> [bank]   - Erase flash page"));
     Serial.println(F("  eraseall              - Mass erase all flash"));
     Serial.println(F("  program <addr> <size> - Upload firmware (binary)"));
-    Serial.println(F("  verify <addr> <size>  - Verify flash (binary)"));
+    Serial.println(F("  checksum <addr> <size>- Calculate CRC32 of flash"));
     Serial.println(F("  unlock                - Unlock flash"));
     Serial.println(F("  lock                  - Lock flash"));
     Serial.println(F("  status                - Show programmer status"));
@@ -324,57 +325,31 @@ static void cmd_program(const char *args) {
     Serial.println(F("READY"));  // Signal to host: start sending binary data
 }
 
-static void cmd_verify_readback(const char *args) {
+static void cmd_checksum(const char *args) {
     // Parse: <addr> <size>
     char addr_str[20], size_str[20];
     if (sscanf(args, "%19s %19s", addr_str, size_str) != 2) {
-        Serial.println(F("Usage: verify <addr> <size>"));
-        Serial.println(F("  After this command, send <size> bytes of expected data"));
+        Serial.println(F("Usage: checksum <addr> <size>"));
         return;
     }
 
     uint32_t addr = parse_number(addr_str);
     uint32_t size = parse_number(size_str);
 
-    Serial.printf("Verifying %lu bytes at 0x%08lX\r\n", size, addr);
+    Serial.printf("Calculating CRC32 for %lu bytes at 0x%08lX...\r\n", size, addr);
     
-    // Clear any lingering characters (like \n from \r\n) from the text command 
-    // before we signal READY and start reading raw binary data.
-    while (Serial.available()) {
-        Serial.read();
-    }
-    
-    Serial.println(F("READY"));
-
-    // Read expected data from serial and compare with flash
+    uint32_t crc = 0;
     uint32_t verified = 0;
-    uint32_t mismatch_count = 0;
+    
+    // Allocate temporary buffer for bulk read
+    uint8_t *flash_buf = (uint8_t *)malloc(FW_CHUNK_SIZE);
+    if (!flash_buf) {
+        Serial.println(F("ERROR: Out of memory for checksum buffer"));
+        return;
+    }
 
     while (verified < size) {
-        // Wait for a chunk of data
         uint32_t chunk_size = min((uint32_t)FW_CHUNK_SIZE, size - verified);
-        uint32_t received = 0;
-        uint32_t timeout_start = millis();
-
-        while (received < chunk_size) {
-            if (Serial.available()) {
-                fw_chunk[received++] = Serial.read();
-                timeout_start = millis();
-            } else if ((millis() - timeout_start) > 5000) {
-                Serial.println(F("ERROR: Verify data timeout"));
-                return;
-            }
-        }
-
-        // Compare with flash
-        uint32_t *expected = (uint32_t *)fw_chunk;
-        
-        // Allocate temporary buffer for bulk read
-        uint8_t *flash_buf = (uint8_t *)malloc(chunk_size);
-        if (!flash_buf) {
-            Serial.println(F("ERROR: Out of memory for verify buffer"));
-            return;
-        }
 
         // Read entire block at once using auto-increment
         if (!swd_mem_read_block(addr + verified, flash_buf, chunk_size)) {
@@ -383,40 +358,13 @@ static void cmd_verify_readback(const char *args) {
             return;
         }
 
-        uint32_t *flash_words = (uint32_t *)flash_buf;
-        uint32_t words = chunk_size / 4;
-
-        for (uint32_t i = 0; i < words; i++) {
-            if (flash_words[i] != expected[i]) {
-                mismatch_count++;
-                if (mismatch_count <= 5) {
-                    Serial.printf("MISMATCH at 0x%08lX: expected 0x%08lX got 0x%08lX\r\n",
-                                  addr + verified + i * 4, expected[i], flash_words[i]);
-                }
-            }
-        }
-
-        // Handle remaining bytes (less than 4)
-        uint32_t remaining = chunk_size % 4;
-        if (remaining > 0) {
-            for (uint32_t i = 0; i < remaining; i++) {
-                if (flash_buf[words * 4 + i] != fw_chunk[words * 4 + i]) {
-                    mismatch_count++;
-                }
-            }
-        }
-        
-        free(flash_buf);
-
+        crc = crc32_le(crc, flash_buf, chunk_size);
         verified += chunk_size;
-        Serial.printf("PROGRESS: %lu / %lu bytes\r\n", verified, size);
     }
 
-    if (mismatch_count == 0) {
-        Serial.printf("OK: Verification passed (%lu bytes)\r\n", size);
-    } else {
-        Serial.printf("ERROR: %lu mismatches found\r\n", mismatch_count);
-    }
+    free(flash_buf);
+
+    Serial.printf("OK: CRC=0x%08lX\r\n", crc);
 }
 
 
@@ -505,8 +453,8 @@ static void process_command(const char *cmd) {
     else if (strncasecmp(cmd, "program", cmd_len) == 0) {
         cmd_program(args);
     }
-    else if (strncasecmp(cmd, "verify", cmd_len) == 0) {
-        cmd_verify_readback(args);
+    else if (strncasecmp(cmd, "checksum", cmd_len) == 0) {
+        cmd_checksum(args);
     }
     else if (strncasecmp(cmd, "status", cmd_len) == 0) {
         cmd_status();
@@ -524,10 +472,23 @@ static void process_command(const char *cmd) {
 // ============================================================
 
 static void process_binary_data(void) {
-    // In PROGRAMMING state, we receive raw binary firmware data
-    while (Serial.available() && program_received < program_size) {
-        fw_chunk[chunk_pos++] = Serial.read();
-        program_received++;
+    if (program_received >= program_size) return;
+
+    int avail = Serial.available();
+    if (avail > 0) {
+        uint32_t to_read = FW_CHUNK_SIZE - chunk_pos;
+        if (to_read > (program_size - program_received)) {
+            to_read = program_size - program_received;
+        }
+        if (to_read > (uint32_t)avail) {
+            to_read = avail;
+        }
+
+        size_t read_bytes = Serial.readBytes((char *)(fw_chunk + chunk_pos), to_read);
+        if (read_bytes > 0) {
+            chunk_pos += read_bytes;
+            program_received += read_bytes;
+        }
 
         // When chunk is full or we've received everything, program it
         if (chunk_pos >= FW_CHUNK_SIZE || program_received >= program_size) {
@@ -549,7 +510,8 @@ static void process_binary_data(void) {
             }
 
             // Progress update
-            Serial.printf("PROGRESS: %lu / %lu bytes\r\n", program_received, program_size);
+            Serial.printf("PROGRESS: %lu / %lu bytes (ESP32 RAM: %lu B free)\r\n", 
+                          program_received, program_size, ESP.getFreeHeap());
             chunk_pos = 0;
         }
     }
@@ -570,7 +532,7 @@ static void process_binary_data(void) {
 // ============================================================
 
 void serial_cmd_init(void) {
-    Serial.setRxBufferSize(8192);  // Large buffer to handle bursts at 460800 baud
+    Serial.setRxBufferSize(24576);  // Huge buffer to handle bursts at 921600 baud
     Serial.begin(SERIAL_BAUD);
     while (!Serial) {
         delay(10);

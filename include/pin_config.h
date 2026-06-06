@@ -17,16 +17,15 @@
 #define NRST_PIN    19
 
 // Serial baud rate for PC communication
-#define SERIAL_BAUD 460800
+#define SERIAL_BAUD 921600
 
 // SWD clock delay (NOPs per half-cycle at 240MHz ESP32)
-// 8 cycles ≈ ~2-3MHz SWD clock (fast and stable)
-// Increase if SWD errors occur. Default reliable value is 20.
-#define SWD_DELAY_CYCLES  8
+// 32 cycles (~3MHz) is the perfect balance of maximum speed and signal integrity.
+#define SWD_DELAY_CYCLES  32
 
 // Maximum firmware chunk size for serial transfer (bytes)
-// Must match Python CHUNK_SIZE. Keep at 1024 for reliable flow control.
-#define FW_CHUNK_SIZE     1024
+// Must match Python CHUNK_SIZE. Keep at 4096 for reliable flow control.
+#define FW_CHUNK_SIZE     4096
 
 // Debug logging enable (comment out to disable)
 #define SWD_DEBUG_LOG

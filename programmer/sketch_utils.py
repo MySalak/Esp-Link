@@ -67,7 +67,7 @@ def run_command(cmd, cwd=None):
     ok("Command succeeded.")
     return True
 
-def build_sketch(sketch_name, config_dir="configs"):
+def build_sketch(sketch_name, config_dir="configs", target_name=None):
     sketch_path = os.path.join("sketches", sketch_name)
     cmd = [
         "arduino-cli", "compile",
@@ -84,9 +84,10 @@ def build_sketch(sketch_name, config_dir="configs"):
         if os.path.isfile(build_bin):
             target_dir = os.path.join(os.path.dirname(__file__), "bin")
             os.makedirs(target_dir, exist_ok=True)
-            target_bin = os.path.join(target_dir, f"{sketch_name}.bin")
+            t_name = target_name if target_name else sketch_name
+            target_bin = os.path.join(target_dir, f"{t_name}.bin")
             shutil.copy2(build_bin, target_bin)
-            ok(f"Copied compiled binary to programmer/bin/{sketch_name}.bin")
+            ok(f"Copied compiled binary to programmer/bin/{t_name}.bin")
     return success
 
 def upload_sketch_stlink():
@@ -97,8 +98,8 @@ def upload_sketch_stlink():
     ]
     return run_command(cmd)
 
-def build_and_upload(sketch_name, programmer="stlong32", config_dir="configs", ser=None):
-    if build_sketch(sketch_name, config_dir):
+def build_and_upload(sketch_name, programmer="stlong32", config_dir="configs", ser=None, target_name=None):
+    if build_sketch(sketch_name, config_dir, target_name=target_name):
         if programmer == "stlink":
             upload_sketch_stlink()
         elif programmer == "stlong32":
@@ -113,23 +114,101 @@ def build_and_upload(sketch_name, programmer="stlong32", config_dir="configs", s
                 err(f"Compiled binary not found at {bin_file}")
                 return
                 
-            # Temporarily trick config to point to our build folder
-            import config
-            old_bin_dir = config.BIN_DIR
-            config.BIN_DIR = os.path.dirname(bin_file)
-            
-            # Upload using our custom menu function
-            # Since the menu function prompts for file, we bypass it and call the actual function directly
-            from upload import do_connect_and_run, upload_firmware
-            
+            from upload import do_upload
             info(f"Using STLong32 to upload {bin_file}")
-            
-            with open(bin_file, "rb") as f:
-                fw_data = f.read()
-            
-            do_connect_and_run(ser, upload_firmware, fw_data, True) # do_verify = True
-            
-            config.BIN_DIR = old_bin_dir
+            do_upload(ser, bin_file, do_verify=True)
+
+def process_production(sketch_name, programmer="stlong32", ser=None, do_upload=True):
+    info("--- Fetching Devices from Chirpstack ---")
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    try:
+        import helper.chirpstack as cs
+        devices = cs.get_chirpstack_devices()
+        if not devices:
+            err("No devices found in Chirpstack.")
+            return
+
+        info("--- Select Device ---")
+        for idx, dev in enumerate(devices, 1):
+            name = dev.get('name', 'Unknown')
+            deui = dev.get('devEui', '')
+            print(f"    {C_CYAN}{idx}.{C_RESET} {name} ({deui})")
+
+        dev_choice = input(f"\n  Select a device (1-{len(devices)}) or 0 to cancel: ").strip()
+        if not dev_choice or not dev_choice.isdigit():
+            err("Invalid choice.")
+            return
+
+        dev_idx = int(dev_choice)
+        if dev_idx == 0 or dev_idx > len(devices):
+            err("Invalid choice.")
+            return
+
+        selected_dev = devices[dev_idx - 1]
+        activation_resp = cs.get_chirpstack_device_activation(selected_dev['devEui'])
+        if not activation_resp:
+            err("Failed to get activation for device (is it activated?).")
+            return
+
+        activation = activation_resp.get('deviceActivation', activation_resp)
+        dev_addr = activation.get('devAddr', '')
+        nwk_s_key = activation.get('nwkSEncKey', '')
+        app_s_key = activation.get('appSKey', '')
+
+        node_name_clean = selected_dev.get('name', 'Unknown').replace(" ", "_").replace("-", "_")
+        target_name = f"{sketch_name.replace('@', '_')}_{node_name_clean}"
+
+        ok(f"Using keys for device {selected_dev.get('name', 'Unknown')}")
+    except Exception as e:
+        err(f"Error: {e}")
+        return
+
+    is_old = False
+    if '@' in sketch_name:
+        suffix = sketch_name.split('@')[1]
+        if 'old' in suffix:
+            is_old = True
+
+    proj_root = os.path.dirname(os.path.dirname(__file__))
+    tmp_dirname = f"tmp-{random.randint(100, 999)}"
+    tmp_dir = os.path.join(proj_root, "configs", tmp_dirname)
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    try:
+        config_path = os.path.join(proj_root, "configs", "config.h")
+        with open(config_path, "r") as f:
+            config_content = f.read()
+
+        if dev_addr:
+            config_content = re.sub(r'const char devAddr\[\] PROGMEM = ".*";', f'const char devAddr[] PROGMEM = "{dev_addr}";', config_content)
+        if nwk_s_key:
+            config_content = re.sub(r'const char nwkSKey\[\] PROGMEM = ".*";', f'const char nwkSKey[] PROGMEM = "{nwk_s_key}";', config_content)
+        if app_s_key:
+            config_content = re.sub(r'const char appSKey\[\] PROGMEM = ".*";', f'const char appSKey[] PROGMEM = "{app_s_key}";', config_content)
+
+        if is_old:
+            info("Applying 'old version' RFM_pin mappings.")
+            config_content = config_content.replace("// .DIO1 = PB12,", ".DIO1 = PB12,")
+            config_content = config_content.replace("// .DIO2 = PB13,", ".DIO2 = PB13,")
+            config_content = config_content.replace("// .DIO5 = PB14", ".DIO5 = PB14")
+
+            config_content = config_content.replace(".DIO1 = PA3,", "// .DIO1 = PA3,")
+            config_content = config_content.replace(".DIO2 = PA11,", "// .DIO2 = PA11,")
+            config_content = config_content.replace(".DIO5 = PA8", "// .DIO5 = PA8")
+
+        with open(os.path.join(tmp_dir, "config.h"), "w") as f:
+            f.write(config_content)
+
+        rel_tmp_dir = os.path.join("configs", tmp_dirname)
+        if do_upload:
+            build_and_upload(sketch_name, programmer=programmer, config_dir=rel_tmp_dir, ser=ser, target_name=target_name)
+        else:
+            build_sketch(sketch_name, config_dir=rel_tmp_dir, target_name=target_name)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+# Alias for backwards compatibility
+build_and_upload_production = process_production
 
 def gen_db(sketch_name, config_dir="configs"):
     sketch_path = os.path.join("sketches", sketch_name)

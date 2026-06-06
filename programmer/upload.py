@@ -1,4 +1,5 @@
 import time
+import zlib
 from pathlib import Path
 from config import *
 from utils import *
@@ -14,7 +15,10 @@ def do_upload(ser, fw_path, do_verify=False):
     with open(fw_path, "rb") as f:
         fw_data = f.read()
 
+    STM32_FLASH_SIZE = 2 * 1024 * 1024 # 2MB for STM32U585
+    flash_pct = (fw_size / STM32_FLASH_SIZE) * 100
     print(f"\n  Firmware : {C_BOLD}{fw_path.name}{C_RESET}  ({fw_size:,} bytes)")
+    print(f"  Usage    : {flash_pct:.1f}% of 2MB Flash")
     print(f"  Address  : {FLASH_BASE}")
     separator()
 
@@ -70,39 +74,32 @@ def do_upload(ser, fw_path, do_verify=False):
 
     if do_verify:
         print(f"\n  {C_BOLD}[3/{total_steps}] Verify{C_RESET}")
-        resp = send_cmd(ser, f"verify {FLASH_BASE} {fw_size}", timeout=10)
-        if resp != "READY":
-            err("Unexpected response – expected READY")
-            send_cmd(ser, "disconnect", timeout=5, verbose=False)
-            return False
-
-        ok("ESP32 ready – streaming verification data…")
+        
+        # Calculate local CRC32
+        expected_crc = zlib.crc32(fw_data) & 0xFFFFFFFF
+        print(f"  Expected CRC32 : 0x{expected_crc:08X}")
+        
         v_start = time.time()
-        if not send_binary_with_flow(ser, fw_data, label="Verifying"):
-            err("Streaming verification data failed!")
-            return False
+        print(f"  Waiting for ESP32 hardware checksum…")
+        resp = send_cmd(ser, f"checksum {FLASH_BASE} {fw_size}", timeout=10, verbose=False)
 
-        print(f"  Waiting for verification to finish…")
-        resp = ""
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            if ser.in_waiting:
-                raw  = ser.readline()
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line or line.startswith("[STM32] "):
-                    continue
-                info(line)
-                if line.startswith("OK:") or line.startswith("ERROR:"):
-                    resp = line
-                    break
-            time.sleep(0.01)
-
-        if not resp.startswith("OK"):
+        if not resp or not resp.startswith("OK: CRC="):
             err("Verification failed!")
             return False
             
-        v_elapsed = time.time() - v_start
-        ok(f"Verification passed in {v_elapsed:.1f}s!")
+        esp32_crc_str = resp.split("CRC=")[1].strip()
+        try:
+            esp32_crc = int(esp32_crc_str, 16)
+        except ValueError:
+            err("Failed to parse CRC from ESP32")
+            return False
+            
+        if esp32_crc == expected_crc:
+            v_elapsed = time.time() - v_start
+            ok(f"Verification passed in {v_elapsed:.1f}s! (CRC32: 0x{esp32_crc:08X})")
+        else:
+            err(f"Verification mismatch! Expected 0x{expected_crc:08X}, got 0x{esp32_crc:08X}")
+            return False
 
     # ── Final Step : Reset & run ──────────────────────────────────
     print(f"\n  {C_BOLD}[{total_steps}/{total_steps}] Reset target{C_RESET}")

@@ -37,7 +37,9 @@ bool stm32u5_flash_wait_busy(uint32_t timeout_ms) {
             return true;  // Not busy, no errors
         }
 
-        delayMicroseconds(100);
+        // Polling via SWD takes ~20-30us anyway, which is longer than the typical 16us 
+        // flash write time of the STM32U5. A tiny 2us delay is plenty.
+        delayMicroseconds(2);
     }
 
     DBG("Flash busy timeout (%lu ms)", timeout_ms);
@@ -276,11 +278,6 @@ bool stm32u5_flash_write(uint32_t addr, const uint8_t *data, uint32_t len) {
         }
 
         bytes_written += FLASH_QUAD_WORD_SIZE;
-
-        // Progress indicator every 1KB
-        if ((bytes_written % 1024) == 0) {
-            DBG("Programmed %lu / %lu bytes", bytes_written, len);
-        }
     }
 
     DBG("Programming complete: %lu bytes written", len);
