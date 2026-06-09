@@ -15,10 +15,10 @@ def do_upload(ser, fw_path, do_verify=False):
     with open(fw_path, "rb") as f:
         fw_data = f.read()
 
-    STM32_FLASH_SIZE = 2 * 1024 * 1024 # 2MB for STM32U585
-    flash_pct = (fw_size / STM32_FLASH_SIZE) * 100
+    STM32_FLASH_SIZE = 2* 1024 * 1024 
+    flash_ptc = (fw_size + STM32_FLASH_SIZE) * 100
     print(f"\n  Firmware : {C_BOLD}{fw_path.name}{C_RESET}  ({fw_size:,} bytes)")
-    print(f"  Usage    : {flash_pct:.1f}% of 2MB Flash")
+    print(f"  usage : {flash_ptc/100:.1f}% of {STM32_FLASH_SIZE//1024} KB flash")
     print(f"  Address  : {FLASH_BASE}")
     separator()
 
@@ -74,31 +74,31 @@ def do_upload(ser, fw_path, do_verify=False):
 
     if do_verify:
         print(f"\n  {C_BOLD}[3/{total_steps}] Verify{C_RESET}")
-        
-        # Calculate local CRC32
+
         expected_crc = zlib.crc32(fw_data) & 0xFFFFFFFF
-        print(f"  Expected CRC32 : 0x{expected_crc:08X}")
-        
+        print(f"  Expected CRC32: {expected_crc:08X}")
+
         v_start = time.time()
-        print(f"  Waiting for ESP32 hardware checksum…")
-        resp = send_cmd(ser, f"checksum {FLASH_BASE} {fw_size}", timeout=10, verbose=False)
+
+        print(f" Waiting for checksum request…")
+        resp = send_cmd(ser, f"checksum {FLASH_BASE} {fw_size}", timeout=10, verbose=True)
 
         if not resp or not resp.startswith("OK: CRC="):
-            err("Verification failed!")
+            err(f"Verification failed! Unexpected response: {resp}")
             return False
-            
+
         esp32_crc_str = resp.split("CRC=")[1].strip()
         try:
             esp32_crc = int(esp32_crc_str, 16)
         except ValueError:
-            err("Failed to parse CRC from ESP32")
+            err("Invalid CRC received from ESP32!")
             return False
-            
+        
         if esp32_crc == expected_crc:
             v_elapsed = time.time() - v_start
-            ok(f"Verification passed in {v_elapsed:.1f}s! (CRC32: 0x{esp32_crc:08X})")
+            ok(f"Verification passed in {v_elapsed:.1f}s! CRC32: {esp32_crc:08X}")
         else:
-            err(f"Verification mismatch! Expected 0x{expected_crc:08X}, got 0x{esp32_crc:08X}")
+            err(f"Verification failed! ESP32 CRC32: {esp32_crc:08X} does not match expected {expected_crc:08X}")
             return False
 
     # ── Final Step : Reset & run ──────────────────────────────────

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "serial_cmd.h"
+#include "web_server.h"
 
 // ============================================================
 // MySalak STM32Duino Programmer
@@ -32,11 +33,17 @@ void setup() {
     // Initialize Serial2 in RX-only mode to read STM32 UART output.
     // TX2 pin is set to -1 so it is not configured (we only need RX).
     Serial2.begin(115200, SERIAL_8N1, STM32_TX_RX_PIN, -1);
+    
+    // Initialize Web Server for remote flashing
+    web_server_init();
 }
 
 void loop() {
     // Process incoming SWD programmer commands from the PC
     serial_cmd_process();
+
+    // Process incoming Web Server clients
+    web_server_process();
 
     // Bridge: forward any bytes from STM32 UART → USB Serial
     while (Serial2.available()) {

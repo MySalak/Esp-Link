@@ -124,21 +124,20 @@ def submenu_programmer():
         else:
             print(f"  ST-Long : {C_DIM}not connected{C_RESET}\n")
 
+        print(f"  {C_BOLD}{C_MAGENTA}{'═'*50}{C_RESET}")
         print(f"  {C_BOLD}  1.{C_RESET}  Upload")
         print(f"  {C_BOLD}  2.{C_RESET}  Build")
         print(f"  {C_BOLD}  3.{C_RESET}  Build  {C_DIM}(Production){C_RESET}")
         print(f"  {C_BOLD}  4.{C_RESET}  Build & Upload")
         print(f"  {C_BOLD}  5.{C_RESET}  Build & Upload  {C_DIM}(Production){C_RESET}")
-        print(f"  {C_BOLD}───{C_RESET}  ST-Long utilities ───")
+        print(f"  {C_BOLD}{C_RED}{'═'*15} {C_MAGENTA}ST-Long utilities{C_RED} {'═'*16}{C_RESET}")
         print(f"  {C_BOLD}  6.{C_RESET}  Check connection to STM32")
-        print(f"  {C_BOLD}  7.{C_RESET}  Upload firmware file")
-        print(f"  {C_BOLD}  8.{C_RESET}  Upload & Verify")
         print(
-            f"  {C_BOLD}  9.{C_RESET}  Read serial  {C_DIM}(STM32 UART output){C_RESET}"
+            f"  {C_BOLD}  7.{C_RESET}  Read serial  "
         )
-        print(f"  {C_BOLD}  10.{C_RESET} Erase flash")
+        print(f"  {C_BOLD}  8.{C_RESET}  Erase flash")
         print(f"  {C_DIM}  0.  Back to Main Menu{C_RESET}")
-        separator()
+        print(f"  {C_BOLD}{C_MAGENTA}{'═'*50}{C_RESET}")
 
         try:
             choice = input("\n  Select option: ").strip()
@@ -155,7 +154,7 @@ def submenu_programmer():
                 elif prog == "stlong":
                     ser = get_or_connect_ser()
                     if ser:
-                        menu_upload(ser, do_verify=False)
+                        menu_upload(ser, do_verify=True)
                         input("\n  Press Enter to return to menu…")
 
             elif choice == "2":
@@ -208,19 +207,9 @@ def submenu_programmer():
             elif choice == "7":
                 ser = get_or_connect_ser()
                 if ser:
-                    menu_upload(ser, do_verify=False)
-
-            elif choice == "8":
-                ser = get_or_connect_ser()
-                if ser:
-                    menu_upload(ser, do_verify=True)
-
-            elif choice == "9":
-                ser = get_or_connect_ser()
-                if ser:
                     menu_serial(ser)
 
-            elif choice == "10":
+            elif choice == "8":
                 ser = get_or_connect_ser()
                 if ser:
                     menu_erase(ser)

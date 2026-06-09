@@ -150,7 +150,7 @@ def menu_serial(ser):
                     if not is_noise and (filtered or not stm32_text):
                         print(f"  {C_DIM}{ts}{C_RESET}  {C_CYAN}{filtered}{C_RESET}")
                 else:
-                    print(f"  {C_DIM}{line}{C_RESET}")
+                    print(f"  {C_WHITE}{line}{C_RESET}")
             else:
                 time.sleep(0.01)
     except KeyboardInterrupt:
