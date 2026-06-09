@@ -93,11 +93,6 @@ bool stm32u5_flash_erase_page(uint8_t bank, uint8_t page);
 /// @return true on success
 bool stm32u5_flash_mass_erase(void);
 
-/// Program a quadword (16 bytes) to flash
-/// @param addr  Target flash address (must be 16-byte aligned)
-/// @param data  Pointer to 16 bytes of data
-/// @return true on success
-bool stm32u5_flash_write_quadword(uint32_t addr, const uint8_t *data);
 
 /// Program a block of data to flash
 /// @param addr  Target flash address (must be 16-byte aligned)

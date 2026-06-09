@@ -1,8 +1,8 @@
 import os
 
-BAUD        = 921600
+BAUD        = 2000000
 BIN_DIR     = "./programmer/bin"
-CHUNK_SIZE  = 8192
+CHUNK_SIZE  = 65536
 FLASH_BASE  = "0x08000000"
 
 # ANSI colours (work on Windows 10+)

@@ -21,15 +21,11 @@
 
 // SWD clock delay (NOPs per half-cycle at 240MHz ESP32)
 // Currently set to 32 cycles (~3MHz) for perfect stability WITHOUT a physical pull-up resistor.
-// 
-// --- FUTURE HARDWARE UPGRADE ---
-// If you add a physical pull-up resistor (4.7kΩ to 10kΩ) between SWDIO and 3.3V,
-// you can safely lower this to 8 cycles to double your speed again!
 #define SWD_DELAY_CYCLES  0
 
 // Maximum firmware chunk size for serial transfer (bytes)
 // Must match Python CHUNK_SIZE. Keep at 4096 for reliable flow control.
-#define FW_CHUNK_SIZE     32768
+#define FW_CHUNK_SIZE     131072
 
 // Debug logging enable (comment out to disable)
 #define SWD_DEBUG_LOG

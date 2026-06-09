@@ -341,15 +341,16 @@ static void cmd_checksum(const char *args) {
     uint32_t crc = 0;
     uint32_t verified = 0;
     
-    // Allocate temporary buffer for bulk read
-    uint8_t *flash_buf = (uint8_t *)malloc(FW_CHUNK_SIZE);
+    // Allocate a safe 4KB temporary buffer for bulk read (no need for 128KB here)
+    const uint32_t READ_CHUNK_SIZE = 4096;
+    uint8_t *flash_buf = (uint8_t *)malloc(READ_CHUNK_SIZE);
     if (!flash_buf) {
         Serial.println(F("ERROR: Out of memory for checksum buffer"));
         return;
     }
 
     while (verified < size) {
-        uint32_t chunk_size = min((uint32_t)FW_CHUNK_SIZE, size - verified);
+        uint32_t chunk_size = (size - verified > READ_CHUNK_SIZE) ? READ_CHUNK_SIZE : (size - verified);
 
         // Read entire block at once using auto-increment
         if (!swd_mem_read_block(addr + verified, flash_buf, chunk_size)) {

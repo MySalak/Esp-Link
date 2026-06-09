@@ -9,7 +9,7 @@ __pycache__/
 *.pyc
 programmer/__pycache__/
 programmer/bin
-programmer/
 bin
 sketches
 build
+include/secret.h

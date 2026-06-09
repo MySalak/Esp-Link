@@ -195,11 +195,12 @@ public:
     uint32_t flash_addr;
     uint32_t next_unerased_addr;
     uint32_t written;
-    uint8_t buffer[16];
-    uint8_t buf_pos;
+    uint8_t buffer[4096];
+    uint32_t buf_pos;
     bool error;
     String error_msg;
     MD5Builder md5;
+    uint32_t stream_crc;
 
     FlashStream() {
         flash_addr = FLASH_BASE_ADDR;
@@ -207,6 +208,7 @@ public:
         written = 0;
         buf_pos = 0;
         error = false;
+        stream_crc = 0;
         md5.begin();
     }
 
@@ -217,10 +219,11 @@ public:
     size_t write(const uint8_t *buf, size_t size) override {
         if (error) return 0;
         md5.add((uint8_t*)buf, size);
+        stream_crc = crc32_le(stream_crc, buf, size);
         
         size_t written_this_call = 0;
         while (size > 0) {
-            uint32_t to_copy = 16 - buf_pos;
+            uint32_t to_copy = 4096 - buf_pos;
             if (to_copy > size) to_copy = size;
             
             memcpy(buffer + buf_pos, buf, to_copy);
@@ -229,8 +232,8 @@ public:
             size -= to_copy;
             written_this_call += to_copy;
 
-            if (buf_pos == 16) {
-                if (!flush_buffer(16)) {
+            if (buf_pos == 4096) {
+                if (!flush_buffer(4096)) {
                     return written_this_call;
                 }
             }
@@ -312,21 +315,27 @@ void handle_flash() {
         return;
     }
 
-    FlashStream flashStream;
-    int bytes_written = http.writeToStream(&flashStream);
-    
-    // Write any trailing bytes left in the buffer
-    if (!flashStream.error && flashStream.buf_pos > 0) {
-        flashStream.flush_buffer(flashStream.buf_pos);
+    FlashStream* flashStream = new FlashStream();
+    if (!flashStream) {
+        server.send(500, "text/plain", "Out of memory");
+        http.end();
+        return;
     }
 
-    flashStream.md5.calculate();
-    String calculated_md5 = flashStream.md5.toString();
+    int bytes_written = http.writeToStream(flashStream);
+    
+    // Write any trailing bytes left in the buffer
+    if (!flashStream->error && flashStream->buf_pos > 0) {
+        flashStream->flush_buffer(flashStream->buf_pos);
+    }
+
+    flashStream->md5.calculate();
+    String calculated_md5 = flashStream->md5.toString();
 
     uint32_t flash_crc = 0;
-    if (!flashStream.error && flashStream.written > 0) {
+    if (!flashStream->error && flashStream->written > 0) {
         uint32_t verified = 0;
-        uint32_t size = flashStream.written;
+        uint32_t size = flashStream->written;
         uint8_t *flash_buf = (uint8_t *)malloc(1024);
         if (flash_buf) {
             while (verified < size) {
@@ -345,17 +354,24 @@ void handle_flash() {
     swd_reset_and_run();
     http.end();
 
-    if (flashStream.error) {
-        server.send(500, "text/plain", flashStream.error_msg);
+    if (flashStream->error) {
+        server.send(500, "text/plain", flashStream->error_msg);
+        delete flashStream;
         return;
     }
+
+    delete flashStream;
 
     if (bytes_written <= 0) {
         server.send(500, "text/plain", "Download stream was empty or failed.");
         return;
     }
 
-    if (!calculated_md5.equalsIgnoreCase(expected_md5)) {
+    if (flashStream->stream_crc != flash_crc) {
+        char err_msg[64];
+        snprintf(err_msg, sizeof(err_msg), "Flash Verification Failed! Stream: %08lX, Flash: %08lX", flashStream->stream_crc, flash_crc);
+        server.send(500, "text/plain", String(err_msg));
+    } else if (!calculated_md5.equalsIgnoreCase(expected_md5)) {
         server.send(500, "text/plain", "MD5 mismatch! Flashed: " + calculated_md5 + " Expected: " + expected_md5);
     } else {
         char crc_str[32];
@@ -427,7 +443,12 @@ void handleFileUpload() {
                 char crc_str[32];
                 snprintf(crc_str, sizeof(crc_str), " | Flash CRC32: 0x%08lX", flash_crc);
                 
-                if (expected_md5.length() > 0 && !calculated_md5.equalsIgnoreCase(expected_md5)) {
+                if (uploadStream->stream_crc != flash_crc) {
+                    upload_status = 500;
+                    char err_msg[128];
+                    snprintf(err_msg, sizeof(err_msg), "Flash Verification Failed! Stream CRC: %08lX, Flash CRC: %08lX", uploadStream->stream_crc, flash_crc);
+                    upload_result = String(err_msg);
+                } else if (expected_md5.length() > 0 && !calculated_md5.equalsIgnoreCase(expected_md5)) {
                     upload_status = 500;
                     upload_result = "MD5 mismatch! Flashed: " + calculated_md5 + " Expected: " + expected_md5;
                 } else {
