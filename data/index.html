@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firmware Flasher</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #162032;
+            --bg-info: #1e3a5f;
+            --bg-warning: #3a2a0a;
+            --bg-success: #0d3322;
+            --bg-danger: #3a0d0d;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-tertiary: #64748b;
+            --text-info: #7dd3fc;
+            --text-warning: #fbbf24;
+            --text-success: #4ade80;
+            --text-danger: #f87171;
+            --border-tertiary: rgba(148,163,184,0.12);
+            --border-secondary: rgba(148,163,184,0.25);
+            --border-primary: rgba(148,163,184,0.45);
+            --border-info: rgba(56,189,248,0.45);
+            --border-warning: rgba(251,191,36,0.35);
+            --border-success: rgba(74,222,128,0.35);
+            --border-danger: rgba(248,113,113,0.35);
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-xl: 16px;
+            --font-sans: system-ui, -apple-system, sans-serif;
+            --font-mono: ui-monospace, 'Cascadia Code', monospace;
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+
+        .page {
+            width: 100%;
+            max-width: 680px;
+        }
+
+        /* Header */
+        .header { margin-bottom: 1.5rem; }
+        .header h1 { font-size: 18px; font-weight: 500; margin-bottom: 4px; }
+        .header h1 i { font-size: 18px; vertical-align: -2px; margin-right: 6px; }
+        .header p { font-size: 13px; color: var(--text-secondary); }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 8px; margin-bottom: 1.5rem; }
+        .tab {
+            padding: 7px 16px;
+            border-radius: var(--radius-md);
+            border: 0.5px solid var(--border-secondary);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all .15s;
+        }
+        .tab i { font-size: 14px; vertical-align: -1px; margin-right: 5px; }
+        .tab:hover { background: var(--bg-secondary); color: var(--text-primary); }
+        .tab.active {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border-color: var(--border-primary);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Search */
+        .search-wrap { position: relative; margin-bottom: 1rem; }
+        .search-wrap i {
+            position: absolute; left: 10px; top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary); font-size: 16px; pointer-events: none;
+        }
+        .search-wrap input {
+            width: 100%;
+            padding: 9px 12px 9px 34px;
+            border-radius: var(--radius-md);
+            border: 0.5px solid var(--border-secondary);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: var(--font-sans);
+            transition: border-color .15s;
+        }
+        .search-wrap input::placeholder { color: var(--text-tertiary); }
+        .search-wrap input:focus { outline: none; border-color: var(--border-primary); }
+
+        /* Card grid */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px;
+            max-height: 380px;
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+        .card-grid::-webkit-scrollbar { width: 4px; }
+        .card-grid::-webkit-scrollbar-track { background: transparent; }
+        .card-grid::-webkit-scrollbar-thumb { background: var(--border-secondary); border-radius: 4px; }
+
+        .eui-card {
+            background: var(--bg-secondary);
+            border: 0.5px solid var(--border-tertiary);
+            border-radius: var(--radius-lg);
+            padding: 14px 16px;
+            cursor: pointer;
+            transition: all .15s;
+            position: relative;
+            user-select: none;
+        }
+        .eui-card:hover { border-color: var(--border-primary); background: var(--bg-tertiary); }
+        .eui-card.selected {
+            border-color: var(--border-info);
+            background: var(--bg-info);
+        }
+        .eui-card.selected .card-icon { color: var(--text-info); }
+        .eui-card.selected .card-label { color: var(--text-info); }
+        .card-icon { font-size: 20px; margin-bottom: 10px; color: var(--text-tertiary); }
+        .card-icon i { font-size: 20px; }
+        .card-check {
+            position: absolute; top: 10px; right: 10px;
+            font-size: 16px; color: var(--text-info); display: none;
+        }
+        .eui-card.selected .card-check { display: block; }
+        .card-eui {
+            font-size: 12px; font-weight: 500;
+            font-family: var(--font-mono);
+            word-break: break-all; line-height: 1.4; margin-bottom: 6px;
+        }
+        .card-label { font-size: 11px; color: var(--text-secondary); }
+
+        .empty-state {
+            text-align: center; padding: 3rem 1rem;
+            color: var(--text-secondary); font-size: 14px;
+        }
+        .empty-state i { font-size: 32px; display: block; margin-bottom: 8px; color: var(--text-tertiary); }
+
+        /* Loading */
+        .loading-row {
+            display: flex; align-items: center; gap: 8px;
+            font-size: 14px; color: var(--text-secondary); padding: 2rem 0;
+        }
+        .spinner {
+            width: 16px; height: 16px;
+            border: 2px solid var(--border-secondary);
+            border-top-color: var(--text-secondary);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Action bar */
+        .action-bar {
+            display: flex; align-items: center;
+            justify-content: space-between;
+            margin-top: 1rem; padding-top: 1rem;
+            border-top: 0.5px solid var(--border-tertiary);
+        }
+        .selection-hint { font-size: 13px; color: var(--text-secondary); }
+        .selection-hint span { color: var(--text-primary); font-weight: 500; }
+
+        /* Buttons */
+        .btn-flash {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 9px 20px;
+            border-radius: var(--radius-md);
+            background: var(--bg-info);
+            color: var(--text-info);
+            border: 0.5px solid var(--border-info);
+            font-size: 14px; font-weight: 500;
+            cursor: pointer; transition: all .15s;
+        }
+        .btn-flash i { font-size: 15px; }
+        .btn-flash:hover:not(:disabled) { filter: brightness(1.1); }
+        .btn-flash:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* Upload tab */
+        .upload-zone {
+            border: 0.5px dashed var(--border-secondary);
+            border-radius: var(--radius-lg);
+            padding: 2.5rem 1rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all .15s;
+        }
+        .upload-zone:hover { border-color: var(--border-primary); background: var(--bg-secondary); }
+        .upload-zone i { font-size: 32px; color: var(--text-tertiary); margin-bottom: 8px; display: block; }
+        .upload-zone p { font-size: 14px; color: var(--text-secondary); }
+        .upload-zone .file-name {
+            font-size: 13px; font-weight: 500;
+            color: var(--text-primary); margin-top: 4px; display: none;
+        }
+        #local-file { display: none; }
+
+        .field-wrap { margin-bottom: 12px; }
+        .field-wrap label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+        .field-wrap input {
+            width: 100%; padding: 9px 12px;
+            border-radius: var(--radius-md);
+            border: 0.5px solid var(--border-secondary);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 14px; font-family: var(--font-mono);
+        }
+        .field-wrap input::placeholder { color: var(--text-tertiary); }
+        .field-wrap input:focus { outline: none; border-color: var(--border-primary); }
+
+        /* Toast */
+        .toast {
+            position: fixed; bottom: 1.5rem; left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            border-radius: var(--radius-md);
+            font-size: 13px; font-weight: 500;
+            z-index: 200; display: none;
+            align-items: center; gap: 8px;
+            white-space: nowrap; border: 0.5px solid;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+        }
+        .toast.success { background: var(--bg-success); color: var(--text-success); border-color: var(--border-success); }
+        .toast.error { background: var(--bg-danger); color: var(--text-danger); border-color: var(--border-danger); }
+
+        /* Modal */
+        .modal-backdrop {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 100; align-items: center;
+            justify-content: center; padding: 1rem;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--bg-secondary);
+            border: 0.5px solid var(--border-secondary);
+            border-radius: var(--radius-xl);
+            width: 100%; max-width: 420px;
+            overflow: hidden;
+        }
+        .modal-header {
+            padding: 18px 20px 14px;
+            border-bottom: 0.5px solid var(--border-tertiary);
+            display: flex; align-items: flex-start; justify-content: space-between;
+        }
+        .modal-title { font-size: 16px; font-weight: 500; margin-bottom: 2px; }
+        .modal-subtitle { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); }
+        .modal-close {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-tertiary); font-size: 20px; line-height: 1;
+            padding: 2px; transition: color .15s;
+        }
+        .modal-close:hover { color: var(--text-primary); }
+        .modal-body { padding: 18px 20px; }
+
+        .warning-box {
+            background: var(--bg-warning);
+            border: 0.5px solid var(--border-warning);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            display: flex; gap: 8px;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+        .warning-box i { color: var(--text-warning); font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+        .warning-box p { font-size: 12px; color: var(--text-warning); line-height: 1.5; }
+
+        .detail-row {
+            display: flex; align-items: flex-start; gap: 10px;
+            padding: 10px 0;
+            border-bottom: 0.5px solid var(--border-tertiary);
+        }
+        .detail-row:last-child { border-bottom: none; }
+        .detail-icon {
+            width: 32px; height: 32px;
+            border-radius: var(--radius-md);
+            background: rgba(148,163,184,0.08);
+            display: flex; align-items: center;
+            justify-content: center; flex-shrink: 0; margin-top: 1px;
+        }
+        .detail-icon i { font-size: 16px; color: var(--text-secondary); }
+        .detail-key { font-size: 11px; color: var(--text-secondary); margin-bottom: 2px; }
+        .detail-val { font-size: 13px; font-family: var(--font-mono); word-break: break-all; line-height: 1.5; }
+
+        .modal-footer {
+            padding: 14px 20px;
+            border-top: 0.5px solid var(--border-tertiary);
+            display: flex; gap: 8px; justify-content: flex-end;
+        }
+        .btn-cancel {
+            padding: 8px 16px;
+            border-radius: var(--radius-md);
+            border: 0.5px solid var(--border-secondary);
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 13px; cursor: pointer;
+            transition: all .15s;
+        }
+        .btn-cancel:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn-confirm {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 18px;
+            border-radius: var(--radius-md);
+            background: var(--bg-info);
+            color: var(--text-info);
+            border: 0.5px solid var(--border-info);
+            font-size: 13px; font-weight: 500;
+            cursor: pointer; transition: all .15s;
+        }
+        .btn-confirm i { font-size: 15px; }
+        .btn-confirm:hover:not(:disabled) { filter: brightness(1.1); }
+        .btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-upload {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 9px 20px;
+            border-radius: var(--radius-md);
+            background: var(--bg-success);
+            color: var(--text-success);
+            border: 0.5px solid var(--border-success);
+            font-size: 14px; font-weight: 500;
+            cursor: pointer; transition: all .15s;
+        }
+        .btn-upload i { font-size: 15px; }
+        .btn-upload:hover:not(:disabled) { filter: brightness(1.1); }
+        .btn-upload:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* Console */
+        .consoles-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 1.5rem;
+        }
+        .console-box {
+            display: flex;
+            flex-direction: column;
+            background: #000;
+            border: 0.5px solid var(--border-secondary);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+        .console-header {
+            background: var(--bg-secondary);
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            border-bottom: 0.5px solid var(--border-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .console-wrap {
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            height: 220px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-secondary) transparent;
+        }
+        #console-sys { color: #4ade80; }
+        #console-uart { color: #fbbf24; white-space: pre-wrap; }
+        .console-wrap::-webkit-scrollbar { width: 6px; }
+        .console-wrap::-webkit-scrollbar-track { background: transparent; }
+        .console-wrap::-webkit-scrollbar-thumb { background: var(--border-secondary); border-radius: 4px; }
+        .console-line { margin-bottom: 4px; line-height: 1.4; word-break: break-all; }
+        .console-line .time { color: var(--text-tertiary); margin-right: 8px; }
+    </style>
+</head>
+<body>
+
+<div id="toast" class="toast" role="alert" aria-live="assertive"></div>
+
+<div class="page">
+    <div class="header">
+        <h1><i class="ti ti-cpu" aria-hidden="true"></i>Firmware Flasher</h1>
+        <p>Select a device to flash firmware from Jenkins</p>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('jenkins')"><i class="ti ti-cloud-download"></i> Jenkins</button>
+        <button class="tab" onclick="switchTab('upload')"><i class="ti ti-upload"></i> Local Upload</button>
+    </div>
+
+    <div id="tab-jenkins" class="tab-content active">
+        <div id="loading-row" class="loading-row">
+            <div class="spinner"></div> Loading manifest...
+        </div>
+
+        <div id="jenkins-main" style="display:none">
+            <div class="search-wrap">
+                <i class="ti ti-search" aria-hidden="true"></i>
+                <input type="text" id="search" placeholder="Search by EUI or filename..." onkeyup="filterCards(this.value)">
+            </div>
+
+            <div class="card-grid" id="card-grid"></div>
+            
+            <div class="empty-state" id="empty-state" style="display:none">
+                <i class="ti ti-folder-off" aria-hidden="true"></i>
+                No devices match your search
+            </div>
+
+            <div class="action-bar">
+                <p class="selection-hint" id="sel-hint">No device selected</p>
+                <button class="btn-flash" id="flash-btn" disabled onclick="openModal()">
+                    <i class="ti ti-bolt"></i> Flash Device
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-upload" class="tab-content">
+        <div class="upload-zone" onclick="document.getElementById('local-file').click()">
+            <i class="ti ti-file-upload"></i>
+            <p>Click to select a .bin firmware file</p>
+            <p class="file-name" id="file-name-display"></p>
+            <input type="file" id="local-file" accept=".bin" style="display:none" onchange="onFileChange(event); event.stopPropagation()">
+        </div>
+        <div class="md5-input-wrap">
+            <label>Expected MD5 (Optional)</label>
+            <input type="text" id="local-md5" placeholder="Enter MD5 to verify after flashing...">
+        </div>
+        <div class="action-bar" style="justify-content: flex-end;">
+            <button class="btn-upload" id="upload-btn" disabled onclick="doUpload()">
+                <i class="ti ti-upload"></i> Upload &amp; flash
+            </button>
+        </div>
+    </div>
+    
+    <!-- Dual Live Consoles -->
+    <div class="consoles-container">
+        <div class="console-box">
+            <div class="console-header"><i class="ti ti-terminal"></i> Flash Logs</div>
+            <div class="console-wrap" id="console-sys">
+                <div class="console-line"><span class="time">Sys</span> Console ready. Waiting for logs...</div>
+            </div>
+        </div>
+        <div class="console-box">
+            <div class="console-header"><i class="ti ti-device-desktop"></i> UART Output</div>
+            <div class="console-wrap" id="console-uart"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-backdrop" id="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <p class="modal-title" id="modal-title">Confirm flash</p>
+                <p class="modal-subtitle" id="modal-eui-sub"></p>
+            </div>
+            <button class="modal-close" onclick="closeModal()" aria-label="Close">
+                <i class="ti ti-x"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="warning-box">
+                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                <p>This will overwrite the device firmware. Make sure the device is connected and do not power it off during the process.</p>
+            </div>
+            <div class="detail-row">
+                <div class="detail-icon"><i class="ti ti-antenna" aria-hidden="true"></i></div>
+                <div><p class="detail-key">Device EUI</p><p class="detail-val" id="m-eui">—</p></div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-icon"><i class="ti ti-file-zip" aria-hidden="true"></i></div>
+                <div><p class="detail-key">Firmware file</p><p class="detail-val" id="m-file">—</p></div>
+            </div>
+            <div class="detail-row">
+                <div class="detail-icon"><i class="ti ti-fingerprint" aria-hidden="true"></i></div>
+                <div><p class="detail-key">MD5 checksum</p><p class="detail-val" id="m-md5">—</p></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+            <button class="btn-confirm" id="confirm-btn" onclick="doFlash()">
+                <i class="ti ti-bolt" aria-hidden="true"></i>Confirm flash
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let manifest = [];
+    let selectedEUI = null;
+
+    function switchTab(t) {
+        document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelector(`.tab[onclick="switchTab('${t}')"]`).classList.add('active');
+        document.getElementById('tab-' + t).classList.add('active');
+    }
+
+    function showToast(msg, type = 'success') {
+        const el = document.getElementById('toast');
+        el.innerHTML = '';
+        const ic = document.createElement('i');
+        ic.className = 'ti ' + (type === 'success' ? 'ti-check' : 'ti-x');
+        ic.setAttribute('aria-hidden', 'true');
+        el.appendChild(ic);
+        el.appendChild(document.createTextNode(' ' + msg));
+        el.className = 'toast ' + type;
+        el.style.display = 'flex';
+        setTimeout(() => { el.style.display = 'none'; }, 3500);
+    }
+
+    function renderCards(items) {
+        const grid = document.getElementById('card-grid');
+        const empty = document.getElementById('empty-state');
+        grid.innerHTML = '';
+        if (!items.length) {
+            grid.style.display = 'none';
+            empty.style.display = 'block';
+            return;
+        }
+        grid.style.display = 'grid';
+        empty.style.display = 'none';
+        items.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'eui-card' + (item.devEUI === selectedEUI ? ' selected' : '');
+            card.setAttribute('role', 'button');
+            card.setAttribute('tabindex', '0');
+            card.setAttribute('aria-pressed', item.devEUI === selectedEUI ? 'true' : 'false');
+            card.innerHTML = `
+                <div class="card-icon"><i class="ti ti-router" aria-hidden="true"></i></div>
+                <i class="ti ti-circle-check card-check" aria-hidden="true"></i>
+                <p class="card-eui">${item.devEUI}</p>
+                <p class="card-label">${item.filename}</p>`;
+            card.onclick = () => selectCard(item.devEUI);
+            card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') selectCard(item.devEUI); };
+            grid.appendChild(card);
+        });
+    }
+
+    function filterCards(q) {
+        const lower = q.toLowerCase();
+        const filtered = q
+            ? manifest.filter(i =>
+                i.devEUI.toLowerCase().includes(lower) ||
+                i.filename.toLowerCase().includes(lower))
+            : manifest;
+        renderCards(filtered);
+    }
+
+    function selectCard(eui) {
+        selectedEUI = eui;
+        const sel = manifest.find(i => i.devEUI === eui);
+        document.getElementById('flash-btn').disabled = !sel;
+        document.getElementById('sel-hint').innerHTML = sel
+            ? `<span>${sel.devEUI}</span> selected`
+            : 'No device selected';
+        filterCards(document.getElementById('search').value);
+    }
+
+    function openModal() {
+        const sel = manifest.find(i => i.devEUI === selectedEUI);
+        if (!sel) return;
+        document.getElementById('m-eui').textContent = sel.devEUI;
+        document.getElementById('m-file').textContent = sel.filename;
+        document.getElementById('m-md5').textContent = sel.md5;
+        document.getElementById('modal-eui-sub').textContent = sel.devEUI;
+        document.getElementById('modal-backdrop').classList.add('open');
+    }
+
+    function closeModal() {
+        document.getElementById('modal-backdrop').classList.remove('open');
+    }
+
+    document.getElementById('modal-backdrop').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeModal();
+    });
+
+    function setFlashing(on) {
+        const btn = document.getElementById('confirm-btn');
+        btn.disabled = on;
+        btn.innerHTML = on
+            ? `<div class="spinner" style="width:14px;height:14px;border-width:2px;flex-shrink:0"></div> Flashin...`
+            : `<i class="ti ti-bolt" aria-hidden="true"></i>Confirm flash`;
+    }
+
+    function doFlash() {
+        const sel = manifest.find(i => i.devEUI === selectedEUI);
+        if (!sel) return;
+        setFlashing(true);
+        fetch(`/api/flash?filename=${encodeURIComponent(sel.filename)}&md5=${encodeURIComponent(sel.md5)}`, { method: 'POST' })
+            .then(r => r.text().then(t => ({ status: r.status, text: t })))
+            .then(({ status, text }) => {
+                setFlashing(false);
+                closeModal();
+                if (status === 200) showToast('Flash successful!', 'success');
+                else showToast('Error: ' + text, 'error');
+            })
+            .catch(err => {
+                setFlashing(false);
+                closeModal();
+                showToast('Request failed: ' + err, 'error');
+            });
+    }
+
+    function onFileChange(e) {
+        const f = e.target.files[0];
+        const btn = document.getElementById('upload-btn');
+        const disp = document.getElementById('file-name-display');
+        if (f) {
+            disp.textContent = f.name;
+            disp.style.display = 'block';
+            btn.disabled = false;
+        } else {
+            disp.style.display = 'none';
+            btn.disabled = true;
+        }
+    }
+
+    function doUpload() {
+        const f = document.getElementById('local-file').files[0];
+        if (!f) return;
+        const btn = document.getElementById('upload-btn');
+        btn.disabled = true;
+        btn.innerHTML = `<div class="spinner" style="width:14px;height:14px;border-width:2px;flex-shrink:0"></div> Uploading…`;
+        const fd = new FormData();
+        fd.append('file', f);
+        const md5 = document.getElementById('local-md5').value;
+        const q = md5 ? '?md5=' + encodeURIComponent(md5) : '';
+        fetch('/api/upload' + q, { method: 'POST', body: fd })
+            .then(r => r.text().then(t => ({ status: r.status, text: t })))
+            .then(({ status, text }) => {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="ti ti-upload" aria-hidden="true"></i>Upload &amp; flash`;
+                if (status === 200) showToast(text || 'Upload & flash successful!', 'success');
+                else showToast('Error: ' + text, 'error');
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="ti ti-upload" aria-hidden="true"></i>Upload &amp; flash`;
+                showToast('Upload failed: ' + err, 'error');
+            });
+    }
+
+    // Console WebSocket
+    const consSys = document.getElementById('console-sys');
+    const consUart = document.getElementById('console-uart');
+    
+    function logToConsole(msg, isUart) {
+        if (isUart) {
+            consUart.appendChild(document.createTextNode(msg));
+            consUart.scrollTop = consUart.scrollHeight;
+        } else {
+            const line = document.createElement('div');
+            line.className = 'console-line';
+            const d = new Date();
+            const time = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0') + ':' + d.getSeconds().toString().padStart(2, '0');
+            line.innerHTML = `<span class="time">${time}</span> ${msg}`;
+            consSys.appendChild(line);
+            consSys.scrollTop = consSys.scrollHeight;
+        }
+    }
+
+    function initWebSocket() {
+        if(window.location.hostname === '') return;
+        let ws = new WebSocket('ws://' + window.location.hostname + ':81/');
+        ws.onmessage = function(event) {
+            if (event.data.startsWith('SYS|')) {
+                logToConsole(event.data.substring(4), false);
+            } else if (event.data.startsWith('UART|')) {
+                logToConsole(event.data.substring(5), true);
+            }
+        };
+        ws.onclose = function() {
+            logToConsole("WebSocket connection lost. Reconnecting in 3s...", false);
+            setTimeout(initWebSocket, 3000);
+        };
+        ws.onerror = function() {};
+    }
+    initWebSocket();
+
+    // Load manifest on page load
+    fetch('/api/manifest')
+        .then(r => r.json())
+        .then(data => {
+            manifest = data;
+            document.getElementById('loading-row').style.display = 'none';
+            document.getElementById('jenkins-main').style.display = 'block';
+            renderCards(manifest);
+        })
+        .catch(() => {
+            const row = document.getElementById('loading-row');
+            row.innerHTML = '<i class="ti ti-wifi-off" style="font-size:16px;color:#f87171"></i><span style="color:#f87171">Failed to load manifest</span>';
+        });
+</script>
+</body>
+</html>
