@@ -24,21 +24,24 @@
 //
 
 // RX2 pin that connects to the STM32 TX line
-#define STM32_TX_RX_PIN  16
+#define STM32_TX_RX_PIN 16
 
-void setup() {
+void setup()
+{
+
     // Initialize SWD programmer command interface (uses Serial / USB)
     serial_cmd_init();
 
     // Initialize Serial2 in RX-only mode to read STM32 UART output.
     // TX2 pin is set to -1 so it is not configured (we only need RX).
     Serial2.begin(115200, SERIAL_8N1, STM32_TX_RX_PIN, -1);
-    
+
     // Initialize Web Server for remote flashing
     web_server_init();
 }
 
-void loop() {
+void loop()
+{
     // Process incoming SWD programmer commands from the PC
     serial_cmd_process();
 
@@ -46,7 +49,8 @@ void loop() {
     web_server_process();
 
     // Bridge: forward any bytes from STM32 UART → USB Serial
-    while (Serial2.available()) {
+    while (Serial2.available())
+    {
         Serial.write(Serial2.read());
     }
 }
